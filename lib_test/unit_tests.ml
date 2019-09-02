@@ -4,13 +4,13 @@ open Rrd
 
 let compareish f1 f2 =
   let result = (Utils.isnan f1 && Utils.isnan f2) ||
-               (f1 = f2) || 
+               (f1 = f2) ||
                (abs_float (f1 -. f2) /. f1) < 0.001 in
   result
 
 let compareish2 f1 f2 =
   let result = (Utils.isnan f1 && Utils.isnan f2) ||
-               (f1 = f2) || 
+               (f1 = f2) ||
                (abs_float (f1 -. f2)) < 0.0001 in
   result
 
