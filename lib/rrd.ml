@@ -237,6 +237,7 @@ let rra_update rrd proc_pdp_st elapsed_pdp_st pdps =
    deal with gauge DSs, we multiply by the interval so that it cancels
    the subsequent divide by interval later on *)
 let process_ds_value ds value interval new_domid =
+  let in_range x = x < ds.ds_min || x > ds.ds_max in
   if interval > ds.ds_mrhb
   then nan
   else
@@ -268,8 +269,17 @@ let process_ds_value ds value interval new_domid =
             | _ -> failwith ("Bad type updating ds: " ^ ds.ds_name)
           end
       in
-      ds.ds_last <- value;
-      rate
+
+      (* Guard against invalid values in all data structures,
+       * even if it means that the successive value might be
+       * unknown too *)
+      let bound_value, bound_rate = match in_range rate with
+      | true  -> value, rate
+      | false -> VT_Unknown, nan
+      in
+
+      ds.ds_last <- bound_value;
+      bound_rate
     end
 
 let ds_update rrd timestamp values transforms new_domid =
@@ -300,7 +310,8 @@ let ds_update rrd timestamp values transforms new_domid =
   (* We're now done with the last_updated value, so update it *)
   rrd.last_updated <- timestamp;
 
-  (* Calculate the values we're going to store based on the input data and the type of the DS *)
+  (* Calculate the values we're going to store based on the input data and the type of the DS
+   * Also update the last value of ds_last for each data source*)
   let v2s = Array.mapi (fun i value -> process_ds_value rrd.rrd_dss.(i) value interval new_domid) values in
   (* Update the PDP accumulators up until the most recent PDP *)
   Array.iteri
