@@ -45,27 +45,34 @@ let ( --- ) = Int64.sub
 let ( *** ) = Int64.mul
 let ( /// ) = Int64.div
 
-let cf_type_of_string s =
-  match s with
+let ds_type_to_string = function
+  | Gauge     -> "GAUGE"
+  | Absolute  -> "ABSOLUTE"
+  | Derive    -> "DERIVE"
+
+let cf_type_of_string = function
   | "AVERAGE" -> CF_Average
   | "MIN" -> CF_Min
   | "MAX" -> CF_Max
   | "LAST" -> CF_Last
   | x -> failwith (Printf.sprintf "Unknown cf_type: %s" x)
 
-let cf_type_to_string cf =
-  match cf with
+let cf_type_to_string = function
   | CF_Average -> "AVERAGE"
   | CF_Max -> "MAX"
   | CF_Min -> "MIN"
   | CF_Last -> "LAST"
 
-let cf_init_value cf =
-  match cf with
+let cf_init_value = function
   | CF_Average -> 0.0
   | CF_Min -> infinity
   | CF_Max -> neg_infinity
   | CF_Last -> nan
+
+let ds_value_to_string = function
+  | VT_Float x -> Utils.f_to_s x
+  | VT_Int64 x -> Printf.sprintf "%Ld" x
+  | _          -> "0.0"
 
 (** The CDP preparation scratch area.
     The 'value' field should be accumulated in such a way that it always
@@ -612,7 +619,7 @@ let from_xml input =
 
 let xml_to_output rrd output =
   (* We use an output channel for Xmlm-compat buffered output. Provided we flush
-     	   at the end we should be safe. *)
+     at the end we should be safe. *)
 
   let tag n fn output =
     Xmlm.output output (`El_start (("",n),[]));
@@ -624,11 +631,11 @@ let xml_to_output rrd output =
   let do_ds ds output =
     tag "ds" (fun output ->
         tag "name" (data ds.ds_name) output;
-        tag "type" (data (match ds.ds_ty with Gauge -> "GAUGE" | Absolute -> "ABSOLUTE" | Derive -> "DERIVE")) output;
+        tag "type" (data (ds_type_to_string ds.ds_ty)) output;
         tag "minimal_heartbeat" (data (Utils.f_to_s ds.ds_mrhb)) output;
         tag "min" (data (Utils.f_to_s ds.ds_min)) output;
         tag "max" (data (Utils.f_to_s ds.ds_max)) output;
-        tag "last_ds" (data (match ds.ds_last with VT_Float x -> Utils.f_to_s x | VT_Int64 x -> Printf.sprintf "%Ld" x | _ -> "0.0")) output;
+        tag "last_ds" (data (ds_value_to_string ds.ds_last)) output;
         tag "value" (data (Utils.f_to_s ds.ds_value)) output;
         tag "unknown_sec" (data (Printf.sprintf "%d" (int_of_float ds.ds_unknown_sec))) output)
       output
@@ -665,7 +672,7 @@ let xml_to_output rrd output =
 
   let do_rra rra output =
     tag "rra" (fun output ->
-        tag "cf" (data (match rra.rra_cf with CF_Average -> "AVERAGE" | CF_Max -> "MAX" | CF_Min -> "MIN" | CF_Last -> "LAST")) output;
+        tag "cf" (data (cf_type_to_string rra.rra_cf)) output;
         tag "pdp_per_row" (data (string_of_int rra.rra_pdp_cnt)) output;
         tag "params" (tag "xff" (data (Utils.f_to_s rra.rra_xff))) output;
         tag "cdp_prep" (fun output ->
@@ -694,23 +701,14 @@ module Json = struct
   let record xs  = `O xs
   let array  xs  = `A xs
 
-  let ty = function
-    | Gauge     -> string "GAUGE"
-    | Absolute  -> string "ABSOLUTE"
-    | Derive    -> string "DERIVE"
-
   let datasource ds =
     record
       [ "name"               , string "%s" ds.ds_name
-      ; "type"               , ty ds.ds_ty
+      ; "type"               , string "%s" (ds_type_to_string ds.ds_ty)
       ; "minimal_hearbeat"   , string "%s" (Utils.f_to_s ds.ds_mrhb)
       ; "min"                , string "%s" (Utils.f_to_s ds.ds_min)
       ; "max"                , string "%s" (Utils.f_to_s ds.ds_max)
-      ; "last_ds",           ( match ds.ds_last with
-                             | VT_Float x -> string "%s" (Utils.f_to_s x)
-                             | VT_Int64 x -> string "%Ld" x
-                             | _          -> float 0.0
-                             )
+      ; "last_ds"            , string "%s" (ds_value_to_string ds.ds_last)
       ; "value"              , string "%s" (Utils.f_to_s ds.ds_value)
       ; "unknown_sec"        , string "%d" (int_of_float ds.ds_unknown_sec)
       ]
@@ -720,7 +718,7 @@ module Json = struct
       [ "primary_value"       , float 0.0
       ; "secondary_value"     , float 0.0
       ; "value"               , string "%s" (Utils.f_to_s x.cdp_value)
-      ; "unknown_datapoints"  , float @@ float_of_int @@ x.cdp_unknown_pdps
+      ; "unknown_datapoints"  , float @@ float_of_int x.cdp_unknown_pdps
       ]
 
   let get rings rows row col =
